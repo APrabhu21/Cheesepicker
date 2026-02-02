@@ -1,151 +1,125 @@
 import json
-from operator import indexOf
 import requests
-import functools
 
-response=requests.get("https://api.opendota.com/api/heroes")
+# Fetch hero data from OpenDota API
+try:
+    response = requests.get("https://api.opendota.com/api/heroes", timeout=10)
+    response.raise_for_status()
+    IdResponse = json.loads(response.text)
+except requests.exceptions.RequestException as e:
+    print(f"Error fetching hero data: {e}")
+    exit(1)
 
-
-IdResponse = json.loads(response.text)
-IdtoName={}
+IdtoName = {}
+NametoId = {}
 
 for item in IdResponse:
-    IdtoName[item['id']]=item['localized_name']
-#Take input of Names
-a=input("Enter first hero")
-b=input("Enter second hero")
-c=input("Enter third hero")
-d=input("Enter fourth hero")
+    IdtoName[item['id']] = item['localized_name']
+    NametoId[item['localized_name'].lower()] = item['id']
 
-#Convert names to id numbers from opendota
-id1=[id for id,v in IdtoName.items() if v==a]
-id2=[id for id,v in IdtoName.items() if v==b]
-id3=[id for id,v in IdtoName.items() if v==c]
-id4=[id for id,v in IdtoName.items() if v==d]
+# Take input of Names
+print("Enter 4 enemy hero names:")
+a = input("Enter first hero: ").strip()
+b = input("Enter second hero: ").strip()
+c = input("Enter third hero: ").strip()
+d = input("Enter fourth hero: ").strip()
 
+# Convert names to id numbers from opendota
+def get_hero_id(hero_name):
+    hero_id = NametoId.get(hero_name.lower())
+    if hero_id is None:
+        print(f"Error: Hero '{hero_name}' not found!")
+        exit(1)
+    return hero_id
 
-#get matchup for individual id numbers and gather winpercents from them
-#this is for id1
-concatHelper1=str(id1[0])
-Matchuplink1="https://api.opendota.com/api/heroes/"+concatHelper1+"/matchups"
+id1 = get_hero_id(a)
+id2 = get_hero_id(b)
+id3 = get_hero_id(c)
+id4 = get_hero_id(d)
 
-response=requests.get(Matchuplink1)
-Matchup1=json.loads(response.text)
-
-for item in Matchup1:
-    winpercent=(int(item['wins'])/int(item['games_played']))*100
-    item['winpercent1']=winpercent
-    del item['games_played']
-    del item['wins']
+# Function to get matchup data for a hero
+def get_matchup_data(hero_id, winpercent_key, exclude_ids):
+    """Fetch matchup data for a hero and calculate win percentages"""
+    try:
+        matchup_url = f"https://api.opendota.com/api/heroes/{hero_id}/matchups"
+        response = requests.get(matchup_url, timeout=10)
+        response.raise_for_status()
+        matchup_data = json.loads(response.text)
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching matchup data for hero {hero_id}: {e}")
+        exit(1)
     
-
-SortedMatchup1=sorted(Matchup1, key=lambda x: x['hero_id'])
-for i in SortedMatchup1:
-    if i['hero_id']==id4[0]:
-        SortedMatchup1.remove(i)
-    if i['hero_id']==id2[0]:
-        SortedMatchup1.remove(i)
-    if i['hero_id']==id3[0]:
-        SortedMatchup1.remove(i)
+    # Calculate win percentages and filter out excluded heroes
+    processed_matchups = []
+    for item in matchup_data:
+        if item['hero_id'] not in exclude_ids:
+            games = int(item['games_played'])
+            if games > 0:
+                winpercent = (int(item['wins']) / games) * 100
+                processed_matchups.append({
+                    'hero_id': item['hero_id'],
+                    winpercent_key: winpercent
+                })
     
+    return sorted(processed_matchups, key=lambda x: x['hero_id'])
 
-#this is for id2
-concatHelper2=str(id2[0])
-Matchuplink2="https://api.opendota.com/api/heroes/"+concatHelper2+"/matchups"
+# Get matchup data for all 4 heroes
+enemy_ids = [id1, id2, id3, id4]
+print("\nFetching matchup data...")
 
-response=requests.get(Matchuplink2)
-Matchup2=json.loads(response.text)
+SortedMatchup1 = get_matchup_data(id1, 'winpercent1', enemy_ids)
+SortedMatchup2 = get_matchup_data(id2, 'winpercent2', enemy_ids)
+SortedMatchup3 = get_matchup_data(id3, 'winpercent3', enemy_ids)
+SortedMatchup4 = get_matchup_data(id4, 'winpercent4', enemy_ids)
 
-for item in Matchup2:
-    winpercent=(int(item['wins'])/int(item['games_played']))*100
-    item['winpercent2']=winpercent
-    del item['games_played']
-    del item['wins']
+# Merge all matchup data into a single dictionary
+# Create a dict for efficient lookups
+matchup_dict = {}
 
-SortedMatchup2=sorted(Matchup2, key=lambda x: x['hero_id'])
-for i in SortedMatchup2:
-    if i['hero_id']==id1[0]:
-        SortedMatchup2.remove(i)
-    if i['hero_id']==id3[0]:
-        SortedMatchup2.remove(i)
-    if i['hero_id']==id4[0]:
-        SortedMatchup2.remove(i)
-   
+for item in SortedMatchup1:
+    hero_id = item['hero_id']
+    matchup_dict[hero_id] = {'hero_id': hero_id, 'winpercent1': item['winpercent1']}
 
-#this is for id3
-concatHelper3=str(id3[0])
-Matchuplink3="https://api.opendota.com/api/heroes/"+concatHelper3+"/matchups"
+for item in SortedMatchup2:
+    hero_id = item['hero_id']
+    if hero_id in matchup_dict:
+        matchup_dict[hero_id]['winpercent2'] = item['winpercent2']
 
-response=requests.get(Matchuplink3)
-Matchup3=json.loads(response.text)
+for item in SortedMatchup3:
+    hero_id = item['hero_id']
+    if hero_id in matchup_dict:
+        matchup_dict[hero_id]['winpercent3'] = item['winpercent3']
 
-for item in Matchup3:
-    winpercent=(int(item['wins'])/int(item['games_played']))*100
-    item['winpercent3']=winpercent
-    del item['games_played']
-    del item['wins']
+for item in SortedMatchup4:
+    hero_id = item['hero_id']
+    if hero_id in matchup_dict:
+        matchup_dict[hero_id]['winpercent4'] = item['winpercent4']
 
-SortedMatchup3=sorted(Matchup3, key=lambda x: x['hero_id'])
-for i in SortedMatchup3:
-    if i['hero_id']==id1[0]:
-        SortedMatchup3.remove(i)
-    if i['hero_id']==id2[0]:
-        SortedMatchup3.remove(i)
-    if i['hero_id']==id4[0]:
-        SortedMatchup3.remove(i)
-    
-#this is for id4
-concatHelper4=str(id4[0])
-Matchuplink3="https://api.opendota.com/api/heroes/"+concatHelper4+"/matchups"
+# Only include heroes that have data for all 4 matchups
+SortedMatchup = [
+    data for data in matchup_dict.values()
+    if all(key in data for key in ['winpercent1', 'winpercent2', 'winpercent3', 'winpercent4'])
+]
 
-response=requests.get(Matchuplink3)
-Matchup4=json.loads(response.text)
-
-for item in Matchup4:
-    winpercent=(int(item['wins'])/int(item['games_played']))*100
-    item['winpercent4']=winpercent
-    del item['games_played']
-    del item['wins']
-
-SortedMatchup4=sorted(Matchup4, key=lambda x: x['hero_id'])
-for i in SortedMatchup4:
-    if i['hero_id']==id1[0]:
-        SortedMatchup4.remove(i)
-    if i['hero_id']==id2[0]:
-        SortedMatchup4.remove(i)
-    if i['hero_id']==id3[0]:
-        SortedMatchup4.remove(i)
-    
-
-
-if len(SortedMatchup1)<119:
-    SortedMatchup1.insert(118,{'hero_id': 137, 'winpercent1': 50})
-if len(SortedMatchup2)<119:
-    SortedMatchup2.insert(118,{'hero_id': 137, 'winpercent2': 50})
-if len(SortedMatchup3)<119:
-    SortedMatchup3.insert(118,{'hero_id': 137, 'winpercent3': 50})
-if len(SortedMatchup4)<119:
-    SortedMatchup1.insert(118,{'hero_id': 137, 'winpercent4': 50})
-#Now we have hero id vs winpercents for all ids
-#so we need to put them in a single list
-SortedMatchup=SortedMatchup1
+# Calculate geometric mean (balanced measure of effectiveness against all 4 enemies)
 for i in SortedMatchup:
-    i['winpercent2']=SortedMatchup2[SortedMatchup.index(i)]['winpercent2']
-    i['winpercent3']=SortedMatchup3[SortedMatchup.index(i)]['winpercent3']
-    i['winpercent4']=SortedMatchup4[SortedMatchup.index(i)]['winpercent4']
- 
+    i['geo_mean'] = (i['winpercent1'] * i['winpercent2'] * i['winpercent3'] * i['winpercent4']) ** 0.25
+    i['avg_winrate'] = (i['winpercent1'] + i['winpercent2'] + i['winpercent3'] + i['winpercent4']) / 4
 
-#now we can make a product of all winrates to get an idea of overall winrate(not average because multiplicative result gives more accurate result for effectiveness fo a hero)
-for i in SortedMatchup:
-    i['winproduct']=i['winpercent1']*i['winpercent2']*i['winpercent3']*i['winpercent4']
-    del i['winpercent1']
-    del i['winpercent2']
-    del i['winpercent3']
-    del i['winpercent4']
-  
-SortedWinproducts=sorted(SortedMatchup, key=lambda x: x['winproduct'])
-#Now we can run a loop that returns hero names for all the ids in this list
+# Sort by geometric mean (descending - best counters first)
+SortedWinproducts = sorted(SortedMatchup, key=lambda x: x['geo_mean'], reverse=True)
 
+# Display results
+print("\n" + "="*60)
+print("BEST HERO COUNTERS (against your enemy team)")
+print("="*60)
 
-for i in SortedWinproducts:
-    print(IdtoName[i['hero_id']])
+for rank, hero in enumerate(SortedWinproducts[:15], 1):
+    hero_name = IdtoName[hero['hero_id']]
+    geo_mean = hero['geo_mean']
+    avg_wr = hero['avg_winrate']
+    print(f"{rank:2}. {hero_name:25} - Geo Mean: {geo_mean:.1f}% (Avg: {avg_wr:.1f}%)")
+    print(f"    vs {a}: {hero['winpercent1']:.1f}% | vs {b}: {hero['winpercent2']:.1f}% | "
+          f"vs {c}: {hero['winpercent3']:.1f}% | vs {d}: {hero['winpercent4']:.1f}%")
+    print()
+
